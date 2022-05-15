@@ -13,6 +13,22 @@ library(topicmodels)
 library(ggplot2)
 library(tidyr)
 
+library(flextable)
+library(GGally)
+library(ggraph)
+library(gutenbergr)
+library(igraph)
+library(Matrix)
+library(network)
+library(quanteda)
+library(sna)
+library(tidygraph)
+library(tidyverse)
+library(tm)
+library(tibble)
+
+### Importing pre-processed emails from csv ###
+
 vgtrk <- read_delim("C:/Users/Savanna/Desktop/Code_projects/R_projects/Text_mining_with_R/all_messages.csv", col_names = FALSE)
 
 ## Use smaller chunks of emails and use rm() & gc() to free up RAM
@@ -215,10 +231,6 @@ vgtrk36b = vgtrk[1770001:1777110,]
 rm(vgtrk)
 gc()
 
-politicians <- read.xlsx("C:/Users/Savanna/Desktop/Code_projects/R_projects/Text_mining_with_R/American_officials.xlsx", colNames = TRUE)
-
-
-
 ### Loading a spam-only filter ###
 
 spam_only <- read.xlsx("C:/Users/Savanna/Desktop/Code_projects/R_projects/Text_mining_with_R/ru_spam.xlsx", colNames = TRUE)
@@ -283,17 +295,7 @@ write.xlsx(vgtrk18th100k_spam_filtered, "vgtrk18th100k_spam_filtered.xlsx")
 
 vgtrk_nospam_names <- lapply(ls(pattern="vgtrk[0-9]+[a-z]{2}100k_spam_filtered$"), function(x) get (x))
 
-## Next search the spam-filtered emails for regex and condense results:
-
-
-ru_fsb_malware <- read.xlsx("C:/Users/Savanna/Desktop/Code_projects/R_projects/Text_mining_with_R/ru_fsb_malware.xlsx", colNames = TRUE)
-fsb_malware_vector <- ru_fsb_malware$value
-fsb_malware <- str_trim(fsb_malware_vector, side = "both")
-filter_fsb_malware <- str_c(fsb_malware, collapse = "|")
-
-vgtrk_fsb_malware <- lapply(vgtrk_nospam_names, function(x) x %>% filter(str_detect(X7, regex(filter_fsb_malware, ignore_case = TRUE))))
-vgtrk_fsb_malware_df <- rbind(vgtrk_fsb_malware[[1]], vgtrk_fsb_malware[[2]], vgtrk_fsb_malware[[3]], vgtrk_fsb_malware[[4]], vgtrk_fsb_malware[[5]], vgtrk_fsb_malware[[6]], vgtrk_fsb_malware[[7]], vgtrk_fsb_malware[[8]], vgtrk_fsb_malware[[9]], vgtrk_fsb_malware[[10]], vgtrk_fsb_malware[[11]], vgtrk_fsb_malware[[12]], vgtrk_fsb_malware[[13]], vgtrk_fsb_malware[[14]], vgtrk_fsb_malware[[15]], vgtrk_fsb_malware[[16]], vgtrk_fsb_malware[[17]], vgtrk_fsb_malware[[18]])
-write.xlsx(vgtrk_vsb_malware_df, "vgtrk_fsb_malware.xlsx")
+## Now you can filter the spam-screened emails by keyword: ##
 
 vgtrk_ibans <- lapply(vgtrk_nospam_names, function(x) x %>% filter(str_detect(X7, regex("[A-Z]{2}[0-9]{2} ?[0-9]{4} ?[0-9]{4} ?[0-9]{4} ?[0-9]{4} ?[0-9]{0,2}|IBAN", ignore_case = TRUE))))
 vgtrk_ibans_df <- rbind(vgtrk_ibans[[1]], vgtrk_ibans[[2]], vgtrk_ibans[[3]], vgtrk_ibans[[4]], vgtrk_ibans[[5]], vgtrk_ibans[[6]], vgtrk_ibans[[7]], vgtrk_ibans[[8]], vgtrk_ibans[[9]], vgtrk_ibans[[10]], vgtrk_ibans[[11]], vgtrk_ibans[[12]], vgtrk_ibans[[13]], vgtrk_ibans[[14]], vgtrk_ibans[[15]], vgtrk_ibans[[16]], vgtrk_ibans[[17]], vgtrk_ibans[[18]])
@@ -364,7 +366,6 @@ balticNATO <- str_trim(balticNATO, side = "both")
 filter_balticNATO <- str_c(balticNATO, collapse = "|")
 
 vgtrk_baltic_nato <- lapply(vgtrk_nospam_names, function(x) x %>% filter(str_detect(X7, regex(filter_balticNATO, ignore_case = TRUE))))
-vgtrk_baltic_nato_df <- rbind()
 ##  vgtrk_baltic_nato[[4]], vgtrk_baltic_nato[[7]], and vgtrk_baltic_nato_df[[8]] each has a faulty file
 vgtrk_baltic_nato_df <- rbind(vgtrk_baltic_nato[[1]], vgtrk_baltic_nato[[2]], vgtrk_baltic_nato[[3]], vgtrk_baltic_nato[[5]],  vgtrk_baltic_nato[[6]], vgtrk_baltic_nato[[10]], vgtrk_baltic_nato[[11]], vgtrk_baltic_nato[[12]], vgtrk_baltic_nato[[13]], vgtrk_baltic_nato[[14]], vgtrk_baltic_nato[[15]], vgtrk_baltic_nato[[16]],vgtrk_baltic_nato[[17]], vgtrk_baltic_nato[[18]])
 write.xlsx(vgtrk_baltic_nato_df, "vgtrk_baltic_nato.xlsx")
@@ -387,46 +388,29 @@ vgtrk_ukraine_df <- rbind(vgtrk_ukraine[[1]], vgtrk_ukraine[[2]], vgtrk_ukraine[
 write.xlsx(vgtrk_ukraine_df, "vgtrk_ukraine.xlsx")
 
 
-## To tokenize, remove stop words and do sentiment analysis ##
+#### To perform LDA / sentiment analysis on keyword-filtered emails ####
+
+## First import stopwords and sentiment lexicon ##
 
 ru_stopwords <- read.xlsx("C:/Users/Savanna/Desktop/Code_projects/R_projects/Text_mining_with_R/ru_stopwords.xlsx", colNames = TRUE)
 
 ru_sentiment <- read.xlsx("C:/Users/Savanna/Desktop/Code_projects/R_projects/Text_mining_with_R/ru_sentiment.xlsx", colNames = TRUE)
-positive <- ru_sentiment %>% filter(affect == " positive")
-negative <- ru_sentiment %>% filter(affect == " negative")
 
+## Next unnest tokens & remove stopwords from each group of emails ##
 
 vgtrk_ukraine_words <- vgtrk_ukraine_df %>% unnest_tokens("words", X7, to_lower = TRUE)
 vgtrk_ukraine_keywords <- vgtrk_ukraine_words %>% stringdist_anti_join(ru_stopwords, c("words" = "words"))
 
-ukraine_positive <- vgtrk_ukraine_keywords %>%
-  inner_join(positive, by = c("words" = "word"), copy = TRUE) %>%
-  count(words, sort = TRUE)
-ukraine_negative <- vgtrk_ukraine_keywords %>%
-  inner_join(negative, by = c("words" = "word"), copy = TRUE) %>%
-  count(words, sort = TRUE)
-
-write.xlsx(ukraine_positive, "ukraine_positive.xlsx")
-write.xlsx(ukraine_negative, "ukraine_negative.xlsx")
-
-vgtrk_ukraine_framing_words <- vgtrk_ukraine_framing %>% unnest_tokens("words", X7, to_lower = TRUE)
-vgtrk_ukraine_framing_keywords <- vgtrk_ukraine_framing_words %>% stringdist_anti_join(ru_stopwords, c("words" = "words"))
-
-ukraine_framing_positive <- vgtrk_ukraine_framing_keywords %>%
-  inner_join(positive, by = c("words" = "word"), copy = TRUE) %>%
-  count(words, sort = TRUE)
-ukraine_framing_negative <- vgtrk_ukraine_keywords %>%
-  inner_join(negative, by = c("words" = "word"), copy = TRUE) %>%
-  count(words, sort = TRUE)
-
-## To do LDA on tokenized data ###
-
 de_words <- vgtrk_de_to_df %>% unnest_tokens("words", X7, to_lower = TRUE)
 de_keywords <- de_words %>% stringdist_anti_join(ru_stopwords, c("words" = "words"))
 
+## Next take counts of key words ##
 
 ukraine_wordcounts <- vgtrk_ukraine_framing_keywords %>% 
   count(X1, words, sort = TRUE)
+
+## Now you can perform LDA on unigrams ##
+
 ukraine_dtm <- ukraine_wordcounts %>% cast_dtm(X1, words, n)
 
 ukraine_lda <- LDA(ukraine_dtm, k=4, control = list(seed = 1234))
@@ -440,8 +424,12 @@ top_terms_ukraine %>% mutate(term = reorder_within(term, beta, topic)) %>%
   facet_wrap(~topic, scales = "free") +
   scale_y_reordered()
 
+## In this step you manually translate the top words and reimport ##
+
 write.xlsx(top_terms_ukraine, "top_terms_ukraine.xlsx")
 top_terms_ukraine <- read.xlsx("top_terms_ukraine.xlsx")
+
+## You can also look at LDA topics by sender (or other grouping variable)
 
 ukraine_gamma <- tidy(ukraine_lda, matrix = "gamma")
 ukraine_gamma_top <- filter(ukraine_gamma, gamma > 0.5)
@@ -452,9 +440,7 @@ ukraine_gamma %>%
   facet_wrap(~ document) +
   labs(x = "topic", y = expression(gamma))
 
-
-## To tokenize with bigrams and try LDA on bigrams instead:
-
+## To tokenize with bigrams instead, removing stop-words is tricky: ##
 
 vgtrk_ukraine_bigrams <- vgtrk_ukraine_df %>% 
   unnest_tokens(bigram, X7, token = "ngrams", n = 2)
@@ -468,6 +454,8 @@ ukraine_bigrams_key <- vgtrk_ukraine_keybigrams %>%
   unite(bigram, word1, word2, sep = " ")
 ukraine_bigram_counts <- ukraine_bigrams_key %>% 
   count(X1, bigram, sort = TRUE)
+
+## Topic modeling gives more interesting results with bigrams:
 
 ukraine_bigram_dtm <- ukraine_bigram_counts %>% cast_dtm(X1, bigram, n)
 
@@ -486,8 +474,12 @@ top_bigrams_ukraine %>%
   facet_wrap(~topic, scales = "free") +
   scale_y_reordered()
 
+## Again you manually translate and reimport the key bigrams ##
+
 write.xlsx(top_bigrams_ukraine, "top_bigrams_ukraine.xlsx")
 top_bigrams_ukraine <- read.xlsx("top_bigrams_ukraine.xlsx")
+
+## Again you can look at the topics by sender ##
 
 ukraine_bigrams_gamma <- tidy(ukraine_bigram_lda, matrix = "gamma")
 ukraine_bigrams_gamma_top <- filter(ukraine_gamma, gamma > 0.3)
@@ -499,8 +491,7 @@ ukraine_bigrams_gamma_top %>%
   facet_wrap(~ document) +
   labs(x = "topic", y = expression(gamma))
 
-### Visualizing bigrams for Baltic/NATO states list ####
-
+### Visualizing topics for Baltic/NATO states emails ####
 
 vgtrk_baltic_nato_bigrams <- vgtrk_baltic_nato_df %>% 
   unnest_tokens(bigram, X7, token = "ngrams", n = 2)
@@ -553,9 +544,7 @@ baltic_nato_bigrams_gamma_top %>%
   labs(x = "topic", y = expression(gamma))
 
 
-### Visualizing bigrams for WWII keywords list ###
-
-
+### Visualizing topics for WWII emails ###
 
 vgtrk_WWII_bigrams <- vgtrk_WWII_df %>% 
   unnest_tokens(bigram, X7, token = "ngrams", n = 2)
@@ -612,10 +601,9 @@ vgtrk_WWII_words <- vgtrk_WWII_df %>%
 vgtrk_WWII_keywords <- vgtrk_WWII_words %>% 
   stringdist_anti_join(ru_stopwords, c("word" = "words"))
 
+## You can also do sentiment analysis with unigrams
 
-?read.xlsx
 ru_sentiment <-  read.xlsx("C:/Users/Savanna/Desktop/Code_projects/R_projects/Text_mining_with_R/ru_sentiment_simplified.xlsx", colNames = TRUE)
-
 
 WWII_sentiment_counts <- vgtrk_WWII_keywords %>%
   full_join(ru_sentiment, by = c("word" = "word"), copy = TRUE) %>%
@@ -628,6 +616,7 @@ WWII_sentiment <- WWII_sentiment_counts %>%
   ungroup() %>%
   mutate(word = reorder(word, n))
 
+## Again there is a manual translation step and you reimport the data:
 
 write.xlsx(WWII_sentiment, "WWII_sentiment.xlsx")
 WWII_sentiment <- read.xlsx("WWII_sentiment.xlsx")
@@ -639,7 +628,7 @@ WWII_sentiment %>%
   labs(x = "Contribution to sentiment",
        y = NULL)
 
-### Visualizing bigrams for German names list ###
+### Visualizing topics/sentiment for emails matching German names list ###
 
 german_names_bigrams <- vgtrk_german_names_df %>% 
   unnest_tokens(bigram, X7, token = "ngrams", n = 2)
@@ -675,7 +664,6 @@ top_bigrams_german_names %>%
 write.xlsx(top_bigrams_german_names, "top_bigrams_german_names.xlsx")
 top_bigrams_german_names <- read.xlsx("top_bigrams_german_names.xlsx")
 
-
 top_bigrams_german_names %>% 
   mutate(term = reorder_within(term, beta, topic)) %>%
   ggplot(aes(beta, translated, fill = factor(topic))) +
@@ -683,9 +671,7 @@ top_bigrams_german_names %>%
   facet_wrap(~topic, scales = "free") +
   scale_y_reordered()
 
-
 german_names_bigrams_gamma <- tidy(german_names_bigram_lda, matrix = "gamma")
-
 
 german_names_bigrams_gamma %>% 
   mutate(X1 = reorder(document, gamma * topic)) %>%
@@ -694,7 +680,7 @@ german_names_bigrams_gamma %>%
   facet_wrap(~ document) +
   labs(x = "topic", y = expression(gamma))
 
-
+## for sentiment analysis, it is easier to use unigrams
 
 vgtrk_german_names_words <- vgtrk_german_names_df %>% 
   unnest_tokens(word, X7, "words")
@@ -724,97 +710,6 @@ german_names_sentiment %>%
   facet_wrap(~affect, scales = "free_y") +
   labs(x = "Contribution to sentiment",
        y = NULL)
-
-
-### Visualizing bigrams for FSB malware ####
-
-
-fsb_malware_bigrams <- vgtrk_fsb_malware_df %>% 
-  unnest_tokens(bigram, X7, token = "ngrams", n = 2)
-
-fsb_malware_bigrams_sep <- fsb_malware_bigrams %>% 
-  separate(bigram, c("word1", "word2"), sep = " ")
-fsb_malware_keybigrams <- fsb_malware_bigrams_sep %>% 
-  stringdist_anti_join(ru_stopwords, c("word1" = "words")) %>% 
-  stringdist_anti_join(ru_stopwords, c("word2" = "words"))
-fsb_malware_bigrams_key <- fsb_malware_keybigrams %>% 
-  unite(bigram, word1, word2, sep = " ")
-
-fsb_malware_bigram_counts <- fsb_malware_bigrams_key %>% 
-  count(X1, bigram, sort = TRUE)
-
-fsb_malware_bigram_dtm <- fsb_malware_bigram_counts %>% 
-  cast_dtm(X1, bigram, n)
-
-fsb_malware_bigram_lda <- LDA(
-  fsb_malware_bigram_dtm, k=6, control = list(seed = 1234))
-fsb_malware_bigram_topics <- tidy(fsb_malware_bigram_lda, matrix = "beta")
-top_bigrams_fsb_malware <- fsb_malware_bigram_topics %>% 
-  group_by(topic) %>% 
-  slice_max(beta, n=5) %>% ungroup() %>% arrange(topic, -beta)
-
-top_bigrams_fsb_malware %>% 
-  mutate(term = reorder_within(term, beta, topic)) %>%
-  ggplot(aes(beta, term, fill = factor(topic))) +
-  geom_col(show.legend = FALSE) +
-  facet_wrap(~topic, scales = "free") +
-  scale_y_reordered()
-
-write.xlsx(top_bigrams_fsb_malware, "top_bigrams_fsb_malware.xlsx")
-top_bigrams_fsb_malware <- read.xlsx("top_bigrams_fsb_malware.xlsx")
-
-
-top_bigrams_fsb_malware %>% 
-  mutate(term = reorder_within(term, beta, topic)) %>%
-  ggplot(aes(beta, translated, fill = factor(topic))) +
-  geom_col(show.legend = FALSE) +
-  facet_wrap(~topic, scales = "free") +
-  scale_y_reordered()
-
-
-fsb_malware_bigrams_gamma <- tidy(fsb_malware_bigram_lda, matrix = "gamma")
-
-
-fsb_malware_bigrams_gamma %>% 
-  mutate(X1 = reorder(document, gamma * topic)) %>%
-  ggplot(aes(factor(topic), gamma)) +
-  geom_boxplot() +
-  facet_wrap(~ document) +
-  labs(x = "topic", y = expression(gamma))
-
-
-
-vgtrk_fsb_malware_words <- vgtrk_fsb_malware_df %>% 
-  unnest_tokens(word, X7, "words")
-
-vgtrk_fsb_malware_keywords <- vgtrk_fsb_malware_words %>% 
-  stringdist_anti_join(ru_stopwords, c("word" = "words"))
-
-
-fsb_malware_sentiment_counts <- vgtrk_fsb_malware_keywords %>%
-  full_join(ru_sentiment, by = c("word" = "word"), copy = TRUE) %>%
-  count(word, affect, sort = TRUE) %>%
-  ungroup()
-
-fsb_malware_sentiment <- fsb_malware_sentiment_counts %>%
-  group_by(affect) %>%
-  slice_max(n, n = 15) %>% 
-  ungroup() %>%
-  mutate(word = reorder(word, n))
-
-
-write.xlsx(fsb_malware_sentiment, "fsb_malware_sentiment.xlsx")
-fsb_malware_sentiment <- read.xlsx("fsb_malware_sentiment.xlsx")
-
-fsb_malware_sentiment %>%
-  ggplot(aes(n, translated, fill = affect)) +
-  geom_col(show.legend = FALSE) +
-  facet_wrap(~affect, scales = "free_y") +
-  labs(x = "Contribution to sentiment",
-       y = NULL)
-
-
-
 
 
 #### Visualizing bigrams and sentiments for Navalny emails ###
@@ -902,6 +797,143 @@ navalny_sentiment %>%
   facet_wrap(~affect, scales = "free_y") +
   labs(x = "Contribution to sentiment",
        y = NULL)
+
+
+### Comparing the network structure of news emails ###
+
+ru_news <- read.xlsx("C:/Users/Savanna/Desktop/Code_projects/R_projects/Text_mining_with_R/ru_news_content.xlsx", colNames = TRUE)
+news_vector <- ru_news$value
+news <- str_trim(news_vector, side = "both")
+filter_news <- str_c(news, collapse = "|")
+
+vgtrk_news <- lapply(vgtrk_nospam_names, function(x) x %>% filter(str_detect(X7, regex(filter_news, ignore_case = TRUE))))
+vgtrk_news_df <- rbind(vgtrk_news[[1]], vgtrk_news[[2]], vgtrk_news[[3]], vgtrk_news[[4]], vgtrk_news[[5]], vgtrk_news[[6]], vgtrk_news[[7]], vgtrk_news[[8]], vgtrk_news[[9]], vgtrk_news[[10]], vgtrk_news[[11]], vgtrk_news[[12]], vgtrk_news[[13]], vgtrk_news[[14]], vgtrk_news[[15]], vgtrk_news[[16]], vgtrk_news[[17]], vgtrk_news[[18]])
+
+mail_from_news <- vgtrk_news_df %>% count(X1, X4) %>% filter(n > 25)
+
+mail_matrix <- mail_from_news %>% pivot_wider(., names_from = "X4", values_from = "n")
+mail_matrix_df <- as.data.frame(mail_matrix)
+mail_matrix_df[is.na(mail_matrix_df)] = 0
+
+mail_nodes <- mail_matrix_df %>% 
+  dplyr::mutate(From = X1,
+                Occurrences = rowSums(mail_matrix_df[-1])) %>%
+  dplyr::select(From, Occurrences) %>%
+  dplyr::filter(!str_detect(From, "X4"))
+
+mail_edges <- mail_matrix_df %>%
+  dplyr::mutate(from = X1) %>%
+  tidyr::gather(to, Frequency, "Katie.Fisher@hermitagefund.com":"inquiry@rfis.tradeindia.com") %>%
+  dplyr::mutate(Frequency = ifelse(Frequency == 0, NA, Frequency))
+mail_edges <- subset(mail_edges, select = -c(X1))
+head(mail_edges)
+news_network <- igraph::graph_from_data_frame(
+  d = mail_edges, directed = TRUE)
+tidy_news_network <- tidygraph::as_tbl_graph(news_network) %>%
+  tidygraph::activate(edges) %>%
+  dplyr::mutate(name=from)
+
+E(tidy_news_network)$weight <- E(tidy_news_network)$Frequency
+head(E(tidy_news_network)$weight, 10)
+
+set.seed(12345)
+
+tidy_news_network %>%
+  ggraph(layout = "fr") +
+  geom_edge_arc(
+    colour = "gray50", 
+    lineend = "round", 
+    strength = 0.1, 
+    aes(edge_width = weight, 
+        alpha = weight)) +
+  geom_node_text(aes(label = name),
+                 repel = TRUE,
+                 point.padding = unit(0.2, "lines"),
+                 colour = "gray10") +
+  theme_graph(background = "white") +
+  guides(edge_width = FALSE,
+         edge_alpha = FALSE)
+
+### Anonymized image:
+
+tidy_news_network %>%
+  ggraph(layout = "fr") +
+  geom_edge_arc(
+    colour = "gray50", 
+    lineend = "round", 
+    strength = 0.1, 
+    aes(edge_width = weight, 
+        alpha = weight)) +
+  theme_graph(background = "white") +
+  guides(edge_width = FALSE,
+         edge_alpha = FALSE)
+
+### Same network graph for just the framing emails ####
+
+
+news_framing_df <- vgtrk_news_df %>% filter(str_detect(X7, regex(" я |!!", ignore_case = TRUE)) & !str_detect(X7, regex("hyperic", ignore_case = TRUE)))
+
+mail_from_news_framing <- news_framing_df %>% count(X1, X4) %>% filter(n > 2)
+
+framing_mail_matrix <- mail_from_news_framing %>% pivot_wider(., names_from = "X4", values_from = "n")
+framing_mail_matrix_df <- as.data.frame(framing_mail_matrix)
+framing_mail_matrix_df[is.na(framing_mail_matrix_df)] = 0
+
+framing_mail_nodes <- framing_mail_matrix_df %>% 
+  dplyr::mutate(From = X1,
+                Occurrences = rowSums(framing_mail_matrix_df[-1])) %>%
+  dplyr::select(From, Occurrences) %>%
+  dplyr::filter(!str_detect(From, "X4"))
+
+head(framing_mail_matrix_df)
+
+framing_mail_edges <- framing_mail_matrix_df %>%
+  dplyr::mutate(from = X1) %>%
+  tidyr::gather(to, Frequency, "LMarkova@tv-culture.ru":"aredkina@vgtrk.com") %>%
+  dplyr::mutate(Frequency = ifelse(Frequency == 0, NA, Frequency))
+framing_mail_edges <- subset(framing_mail_edges, select = -c(X1))
+
+framing_news_network <- igraph::graph_from_data_frame(
+  d = framing_mail_edges, directed = TRUE)
+tidy_framing_news_network <- tidygraph::as_tbl_graph(
+  framing_news_network) %>%
+  tidygraph::activate(edges) %>%
+  dplyr::mutate(name=from)
+
+E(tidy_framing_news_network)$weight <- E(
+  tidy_framing_news_network)$Frequency
+
+set.seed(12345)
+
+tidy_framing_news_network %>%
+  ggraph(layout = "fr") +
+  geom_edge_arc(
+    colour = "gray50", 
+    lineend = "round", 
+    strength = 0.1, 
+    aes(edge_width = weight, 
+        alpha = weight)) +
+  geom_node_text(aes(label = name),
+                 repel = TRUE,
+                 point.padding = unit(0.2, "lines"),
+                 colour = "gray10") +
+  theme_graph(background = "white") +
+  guides(edge_width = FALSE,
+         edge_alpha = FALSE)
+
+##Anonymized image:
+
+tidy_framing_news_network %>%
+  ggraph(layout = "fr") +
+  geom_edge_arc(
+    colour = "gray50", 
+    lineend = "round", 
+    strength = 0.1, 
+    aes(edge_width = weight, 
+        alpha = weight)) +
+  theme_graph(background = "white") +
+  guides(edge_width = FALSE,
+         edge_alpha = FALSE)
 
 
 
